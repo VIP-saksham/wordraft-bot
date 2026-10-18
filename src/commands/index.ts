@@ -6,6 +6,7 @@ import { broadcastCommand } from "./broadcast";
 import { chainGame } from "./chain-game";
 import { endGameCommand } from "./end-game";
 import { helpCommand } from "./help";
+import { hostGame } from "./host-game";
 import { leaderboardCommand } from "./leaderboard";
 import { logCommand } from "./log";
 import { myScoreCommand } from "./my-score";
@@ -31,6 +32,7 @@ composer.use(
   endGameCommand,
   chainGame,
   patternGame,
+  hostGame,
   myScoreCommand,
   statsCommand,
   banCommand,

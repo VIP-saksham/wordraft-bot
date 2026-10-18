@@ -15,7 +15,8 @@ A fun and competitive word-gaming bot that you can play directly on Telegram!
 • <code>/new</code> — Classic Wordle: guess the 5-letter word with 🟩🟨🟥 hints.
 • <code>/pattern</code> — Fill the blanks: e.g. <code>P L _ _ _</code> — first one to form a real word that fits wins!
 • <code>/scramble</code> — Unscramble the letters: e.g. <code>L A P P E</code> — guess the word first to win!
-• <code>/chain</code> — Word Chain: players /join and build a last-letter chain against the clock!
+• <code>/chain</code> — Classic Word Chain: players /join and build a last-letter chain against the clock!
+• <code>/host</code> — Host Game: you hold the secret word, others guess in the chat!
 
 1. Add me to a group with admin permission to play with your friends.
 2. Use /help for full rules and the command list.

@@ -11,16 +11,19 @@ import { CommandsHelper } from "../util/commands-helper";
 
 const composer = new Composer();
 
-// Timings copied from on9wordchainbot's classic mode.
+// Timings per spec: 45s turns, +1 length every 2 words, -10s every 4 words.
 const JOIN_MS = 60_000;
+const EXTEND_MS = 30_000;
+const MAX_JOIN_MS = 180_000;
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 50;
-const INITIAL_TURN_MS = 40_000;
-const MIN_TURN_MS = 20_000;
+const INITIAL_TURN_MS = 45_000;
+const MIN_TURN_MS = 15_000;
 const INITIAL_MIN_LEN = 3;
 const MAX_MIN_LEN = 10;
-const RAMP_EVERY = 5;
 const WIN_SCORE = 30;
+
+const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 
 type ChainPlayer = { id: string; name: string };
 
@@ -30,17 +33,20 @@ interface ChainGame {
   players: ChainPlayer[];
   idx: number;
   used: Set<string>;
-  currentWord: string;
+  currentWord: string; // "" => bag start-letter phase
+  requiredLetter: string;
   accepted: number;
   minLen: number;
   turnMs: number;
   timer: ReturnType<typeof setTimeout> | null;
+  joinDeadlineMs: number;
+  joinTimer: ReturnType<typeof setTimeout> | null;
   starterId: string;
 }
 
 const games = new Map<string, ChainGame>();
 
-let wordsCache: { dict: Set<string>; startPool: string[] } | null = null;
+let wordsCache: { dict: Set<string>; pool: string[] } | null = null;
 
 const words = () => {
   if (!wordsCache) {
@@ -49,14 +55,14 @@ const words = () => {
       "utf8",
     );
     const dict = new Set<string>();
-    const startPool: string[] = [];
+    const pool: string[] = [];
     for (const raw of txt.split(/\r?\n/)) {
       const w = raw.trim().toLowerCase();
       if (!/^[a-z]{3,15}$/.test(w)) continue;
       dict.add(w);
-      if (w.length <= 7) startPool.push(w);
+      if (w.length <= 7) pool.push(w);
     }
-    wordsCache = { dict, startPool };
+    wordsCache = { dict, pool };
   }
   return wordsCache;
 };
@@ -67,22 +73,21 @@ const esc = (text: string) =>
 const link = (p: ChainPlayer) =>
   `<a href="tg://user?id=${p.id}">${esc(p.name)}</a>`;
 
-const clearTimer = (game: ChainGame) => {
+const clearTimers = (game: ChainGame) => {
   if (game.timer) {
     clearTimeout(game.timer);
     game.timer = null;
   }
+  if (game.joinTimer) {
+    clearTimeout(game.joinTimer);
+    game.joinTimer = null;
+  }
 };
 
-const nextTurnText = (game: ChainGame) => {
-  const tail = game.currentWord[game.currentWord.length - 1];
-  return (
-    `Current word: <code>${esc(game.currentWord.toUpperCase())}</code> ` +
-    `(start with <b>${tail.toUpperCase()}</b> · min ${game.minLen} letters · ⏱ ${Math.round(
-      game.turnMs / 1000,
-    )}s)`
-  );
-};
+const turnRuleText = (game: ChainGame) =>
+  `(start with <b>${game.requiredLetter.toUpperCase()}</b> · min ${game.minLen} letters · ⏱ ${Math.round(
+    game.turnMs / 1000,
+  )}s)`;
 
 const eliminateCurrent = async (game: ChainGame) => {
   const eliminated = game.players[game.idx];
@@ -90,7 +95,7 @@ const eliminateCurrent = async (game: ChainGame) => {
 
   if (game.players.length === 1) {
     const winner = game.players[0];
-    clearTimer(game);
+    clearTimers(game);
     games.delete(game.chatId.toString());
 
     try {
@@ -109,9 +114,11 @@ const eliminateCurrent = async (game: ChainGame) => {
     await bot.api
       .sendMessage(
         game.chatId,
-        `🏆 ${link(winner)} wins the Word Chain game! (+${WIN_SCORE} points)\nTotal words played: ${game.accepted}\nLast word was <code>${esc(
-          game.currentWord.toUpperCase(),
-        )}</code>`,
+        `🏆 ${link(winner)} wins the Word Chain game! (+${WIN_SCORE} points)\nTotal words played: ${game.accepted}${
+          game.currentWord
+            ? `\nLast word was <code>${esc(game.currentWord.toUpperCase())}</code>`
+            : ""
+        }`,
         { parse_mode: "HTML" },
       )
       .catch(() => undefined);
@@ -123,7 +130,9 @@ const eliminateCurrent = async (game: ChainGame) => {
   await bot.api
     .sendMessage(
       game.chatId,
-      `⏰ ${link(eliminated)} ran out of time and is OUT!\n${nextTurnText(game)}`,
+      `⏰ ${link(eliminated)} ran out of time and is OUT!\n➡️ ${link(
+        game.players[game.idx],
+      )} — ${turnRuleText(game)}`,
       { parse_mode: "HTML" },
     )
     .catch(() => undefined);
@@ -139,66 +148,80 @@ const scheduleTurn = (game: ChainGame) => {
   }, game.turnMs);
 };
 
-const handleAnswer = async (
-  ctx: Context,
-  game: ChainGame,
-  guess: string,
-) => {
+/** Invalid word => the turn is skipped to the next player (per game rules). */
+const skipTurn = async (game: ChainGame) => {
+  game.idx = (game.idx + 1) % game.players.length;
+  scheduleTurn(game);
+  const next = game.players[game.idx];
+  return bot.api
+    .sendMessage(
+      game.chatId,
+      `↪️ Turn skipped — ${link(next)}, you're up! ${turnRuleText(game)}`,
+      { parse_mode: "HTML" },
+    )
+    .catch(() => undefined);
+};
+
+const handleAnswer = async (ctx: Context, game: ChainGame, guess: string) => {
   const player = game.players[game.idx];
   if (!ctx.from || ctx.from.id.toString() !== player.id) return;
 
   const { dict } = words();
-  const tail = game.currentWord[game.currentWord.length - 1];
 
-  if (!guess.startsWith(tail)) {
-    return ctx.reply(
-      `❌ <code>${esc(guess.toUpperCase())}</code> must start with <b>${tail.toUpperCase()}</b>!`,
+  if (!guess.startsWith(game.requiredLetter)) {
+    await ctx.reply(
+      `❌ <code>${esc(guess.toUpperCase())}</code> must start with <b>${game.requiredLetter.toUpperCase()}</b>!`,
       { parse_mode: "HTML" },
     );
+    return void (await skipTurn(game));
   }
   if (guess.length < game.minLen) {
-    return ctx.reply(
+    await ctx.reply(
       `❌ Too short! Words need at least <b>${game.minLen}</b> letters now.`,
       { parse_mode: "HTML" },
     );
+    return void (await skipTurn(game));
   }
   if (game.used.has(guess)) {
-    return ctx.reply(
+    await ctx.reply(
       `❌ <code>${esc(guess.toUpperCase())}</code> was already used in this game!`,
       { parse_mode: "HTML" },
     );
+    return void (await skipTurn(game));
   }
   if (!dict.has(guess)) {
-    return ctx.reply(
+    await ctx.reply(
       `❌ <code>${esc(guess.toUpperCase())}</code> is not in my dictionary!`,
       { parse_mode: "HTML" },
     );
+    return void (await skipTurn(game));
   }
 
   game.used.add(guess);
   game.currentWord = guess;
   game.accepted += 1;
+  game.requiredLetter = guess[guess.length - 1];
 
-  if (game.accepted % RAMP_EVERY === 0) {
-    game.turnMs = Math.max(MIN_TURN_MS, game.turnMs - 5_000);
-    game.minLen = Math.min(MAX_MIN_LEN, game.minLen + 1);
-  }
+  // Length +1 per 2 words; time -10s per 4 words.
+  game.minLen = Math.min(MAX_MIN_LEN, INITIAL_MIN_LEN + Math.floor(game.accepted / 2));
+  game.turnMs = Math.max(MIN_TURN_MS, INITIAL_TURN_MS - 10_000 * Math.floor(game.accepted / 4));
 
   game.idx = (game.idx + 1) % game.players.length;
   scheduleTurn(game);
 
   const next = game.players[game.idx];
   return ctx.reply(
-    `✅ ${link(player)} played <code>${esc(guess.toUpperCase())}</code>!\n➡️ ${link(next)} — words starting with <b>${esc(
-      guess[guess.length - 1].toUpperCase(),
-    )}</b>\n${nextTurnText(game)}`,
+    `✅ ${link(player)} played <code>${esc(guess.toUpperCase())}</code>!\n➡️ ${link(next)} — ${turnRuleText(game)}`,
     { parse_mode: "HTML" },
   );
 };
 
 const beginPlay = async (game: ChainGame) => {
   if (game.status !== "joining") return;
-  clearTimer(game);
+  if (game.joinTimer) {
+    clearTimeout(game.joinTimer);
+    game.joinTimer = null;
+  }
 
   if (game.players.length < MIN_PLAYERS) {
     games.delete(game.chatId.toString());
@@ -210,30 +233,41 @@ const beginPlay = async (game: ChainGame) => {
       .catch(() => undefined);
   }
 
-  const { dict, startPool } = words();
+  const { dict } = words();
   game.players.sort(() => Math.random() - 0.5);
-  const startWord = startPool[Math.floor(Math.random() * startPool.length)];
   game.status = "playing";
-  game.currentWord = startWord;
-  game.used.add(startWord);
+  game.currentWord = "";
   game.accepted = 0;
   game.minLen = INITIAL_MIN_LEN;
   game.turnMs = INITIAL_TURN_MS;
   game.idx = 0;
+  game.requiredLetter =
+    LETTERS[Math.floor(Math.random() * LETTERS.length)]!;
+
+  // Seed the used-set minimally so the opening letter always has options.
+  void dict;
 
   const first = game.players[0];
   await bot.api
     .sendMessage(
       game.chatId,
-      `🔗 <b>Word Chain begins!</b>\nStarting word: <code>${esc(
-        startWord.toUpperCase(),
-      )}</code>\n${link(first)} — send a word starting with <b>${esc(
-        startWord[startWord.length - 1].toUpperCase(),
-      )}</b>!\n${nextTurnText(game)}`,
+      `🔗 <b>Word Chain begins!</b>\nThe first word must start with <b>${game.requiredLetter.toUpperCase()}</b> (min ${game.minLen} letters).\n${link(
+        first,
+      )} — send a word now!\n⏱ You have ${Math.round(game.turnMs / 1000)}s per turn.`,
       { parse_mode: "HTML" },
     )
     .catch(() => undefined);
   scheduleTurn(game);
+};
+
+const scheduleJoin = (game: ChainGame) => {
+  if (game.joinTimer) clearTimeout(game.joinTimer);
+  const remaining = Math.max(1000, game.joinDeadlineMs - Date.now());
+  game.joinTimer = setTimeout(() => {
+    void beginPlay(game).catch((error) =>
+      console.error("Chain begin error:", error),
+    );
+  }, remaining);
 };
 
 const startChain = async (ctx: Context) => {
@@ -266,21 +300,20 @@ const startChain = async (ctx: Context) => {
     idx: 0,
     used: new Set(),
     currentWord: "",
+    requiredLetter: "",
     accepted: 0,
     minLen: INITIAL_MIN_LEN,
     turnMs: INITIAL_TURN_MS,
     timer: null,
+    joinDeadlineMs: Date.now() + JOIN_MS,
+    joinTimer: null,
     starterId: ctx.from!.id.toString(),
   };
   games.set(key, game);
-  game.timer = setTimeout(() => {
-    void beginPlay(game).catch((error) =>
-      console.error("Chain begin error:", error),
-    );
-  }, JOIN_MS);
+  scheduleJoin(game);
 
   return ctx.reply(
-    `🔗 <b>Word Chain started!</b>\nType /join to play — need at least ${MIN_PLAYERS} players.\n⏳ Joining ends in <b>60 seconds</b>.\nHost: ${link({
+    `🔗 <b>Classic Word Chain started!</b>\nType /join to play — need at least ${MIN_PLAYERS} players.\n⏳ Game starts in <b>60 seconds</b> (use /extend to add 30s).\nHost: ${link({
       id: ctx.from!.id.toString(),
       name,
     })}`,
@@ -288,10 +321,10 @@ const startChain = async (ctx: Context) => {
   );
 };
 
-const canManage = async (ctx: Context, game: ChainGame) => {
-  const uid = ctx.from!.id.toString();
-  if (uid === game.starterId) return true;
-  if (env.ADMIN_USERS.includes(ctx.from!.id)) return true;
+const canManage = async (ctx: Context, starterId: string) => {
+  const isStarter = ctx.from!.id.toString() === starterId;
+  const isSystemAdmin = env.ADMIN_USERS.includes(ctx.from!.id);
+  if (isStarter || isSystemAdmin) return isStarter || isSystemAdmin;
   try {
     const member = await ctx.getChatMember(ctx.from!.id);
     return ["administrator", "creator"].includes(member.status);
@@ -301,13 +334,13 @@ const canManage = async (ctx: Context, game: ChainGame) => {
 };
 
 composer.command("chain", startChain);
+composer.command("startclassic", startChain);
 composer.command("startgame", startChain);
 
 composer.command("join", async (ctx) => {
-  const key = ctx.chat.id.toString();
-  const game = games.get(key);
+  const game = games.get(ctx.chat!.id.toString());
   if (!game) {
-    return ctx.reply("No Word Chain game is running. Start one with /chain!");
+    return ctx.reply("No Word Chain game is running. Start one with /startclassic!");
   }
   if (game.status !== "joining") {
     return ctx.reply("The game already started — catch the next one!");
@@ -341,12 +374,33 @@ composer.command("flee", async (ctx) => {
   return ctx.reply(`🚪 ${esc(ctx.from!.first_name || "Player")} left the chain.`);
 });
 
+composer.command("extend", async (ctx) => {
+  const game = games.get(ctx.chat!.id.toString());
+  if (!game || game.status !== "joining") {
+    return ctx.reply("No joining phase is active right now.");
+  }
+
+  const remainingMs = game.joinDeadlineMs - Date.now();
+  if (remainingMs >= MAX_JOIN_MS) {
+    return ctx.reply("⌛ The countdown can't be extended any further.");
+  }
+
+  game.joinDeadlineMs = Date.now() + remainingMs + EXTEND_MS;
+  scheduleJoin(game);
+  return ctx.reply(
+    `⏳ Countdown extended by 30s — now ${Math.round(
+      (game.joinDeadlineMs - Date.now()) / 1000,
+    )}s remaining.`,
+  );
+});
+
 composer.command("forcestart", async (ctx) => {
-  const game = games.get(ctx.chat.id.toString());
+  const game = games.get(ctx.chat!.id.toString());
   if (!game || game.status !== "joining") {
     return ctx.reply("No joining phase is active.");
   }
-  if (!(await canManage(ctx, game))) return;
+  // Starter only, per game rules.
+  if (ctx.from!.id.toString() !== game.starterId) return;
   return beginPlay(game);
 });
 
@@ -354,8 +408,8 @@ composer.command("killgame", async (ctx) => {
   const key = ctx.chat!.id.toString();
   const game = games.get(key);
   if (!game) return ctx.reply("No Word Chain game is running.");
-  if (!(await canManage(ctx, game))) return;
-  clearTimer(game);
+  if (!(await canManage(ctx, game.starterId))) return;
+  clearTimers(game);
   const suffix =
     game.status === "playing"
       ? ` Last word was <code>${esc(game.currentWord.toUpperCase())}</code>.`
@@ -371,7 +425,7 @@ composer.on("message:text", async (ctx, next) => {
   const text = ctx.message.text.trim();
   if (!/^[a-zA-Z]{1,100}$/.test(text)) return next();
 
-  const game = games.get(ctx.chat.id.toString());
+  const game = games.get(ctx.chat!.id.toString());
   if (!game || game.status !== "playing") return next();
 
   await handleAnswer(ctx, game, text.toLowerCase());

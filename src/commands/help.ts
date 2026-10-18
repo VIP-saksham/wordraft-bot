@@ -28,18 +28,26 @@ composer.command("help", (ctx) =>
 2. Unscramble them and guess the word — the first correct guess wins!
 3. You have 10 minutes.
 
-<blockquote>🔗 Word Chain (/chain)</blockquote>
-1. Players /join and take turns sending words.
-2. Each word must start with the last letter of the previous word, be a real dictionary word, and not repeat.
-3. 40s per turn — every 5 words the time drops (min 20s) and the minimum word length grows (up to 10).
-4. Time out and you're eliminated — last player standing wins!
+<blockquote>🔗 Classic Word Chain (/startclassic)</blockquote>
+1. Use /startclassic in a group — players join with /join.
+2. Starts after 1 minute or with /forcestart (starter only); /extend adds 30s.
+3. The first word starts with a random letter; each word must start with the last letter of the previous word, be a real dictionary word, and not repeat.
+4. 45s per turn — the minimum word length grows by 1 every 2 words and the timer drops by 10s every 4 words.
+5. Time out = eliminated; invalid words skip your turn. Last player standing wins!
+
+<blockquote>🎩 Host Game (/host)</blockquote>
+1. Use /host to start hosting a word guessing game.
+2. Use the inline buttons to view or change the secret word (host only).
+3. Players guess by typing words in the chat — first correct guess wins the round.
+4. The host cannot participate in guessing. Stop anytime with /stopgame.
 
 <blockquote>Commands:</blockquote>
 - /new - Start a new classic game.
 - /pattern - Start a pattern game.
 - /scramble - Start a word scramble game.
-- /chain - Start a word chain game.
-- /join - Join a running word chain game.
+- /chain, /startclassic - Start a classic word chain game.
+- /join, /flee, /extend, /forcestart, /killgame - Word chain game commands.
+- /host, /stopgame - Host word guessing game.
 - /end - End the current game. Available for only admins in groups.
 - /help - Get help on how to play and commands list.
 - /leaderboard - Get leaderboard from current group.
