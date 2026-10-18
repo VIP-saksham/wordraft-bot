@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { SQL } from "bun";
 
 const sourceDb = new SQL("postgres://postgres:1234@localhost:5432/wordseek");

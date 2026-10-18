@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { autoRetry } from "@grammyjs/auto-retry";
 import { run, sequentialize } from "@grammyjs/runner";
 

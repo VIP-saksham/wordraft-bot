@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { randomInt } from "crypto";
 
 import { redis } from "../config/redis";

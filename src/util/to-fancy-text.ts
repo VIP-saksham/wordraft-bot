@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 const fancyMap: { [key: string]: string } = {
   // Numbers (bold sans-serif)
   "0": "𝟬",

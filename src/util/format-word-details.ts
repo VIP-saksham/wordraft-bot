@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import commonWordsJson from "../data/commonWords.json";
 import { escapeHtmlEntities } from "./escape-html-entities";
 

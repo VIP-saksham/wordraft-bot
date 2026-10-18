@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import type { AllowedChatSearchKey, AllowedChatTimeKey } from "../types";
 
 type MessageContext = {

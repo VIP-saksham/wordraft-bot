@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { BotError, Context, GrammyError, HttpError } from "grammy";
 
 export async function errorHandler(error: BotError<Context>) {

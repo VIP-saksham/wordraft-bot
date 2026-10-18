@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { Composer } from "grammy";
 
 import { bot } from "../config/bot";

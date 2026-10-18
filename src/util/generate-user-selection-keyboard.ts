@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { InlineKeyboard } from "grammy";
 
 import { escapeHtmlEntities } from "./escape-html-entities";

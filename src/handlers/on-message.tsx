@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { Composer, Context, GrammyError } from "grammy";
 import { ReactionTypeEmoji } from "grammy/types";
 

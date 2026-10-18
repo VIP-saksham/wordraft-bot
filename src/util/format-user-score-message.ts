@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { FOOTER_MESSAGE } from "../config/constants";
 import { AllowedChatSearchKey } from "../types";
 import { escapeHtmlEntities } from "./escape-html-entities";

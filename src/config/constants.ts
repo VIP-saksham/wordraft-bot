@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 export const FOOTER_MESSAGE = `<blockquote>🛠 Developed by @truenakshu\n📢 Official Channel for announcements: @thehellbots\n🗨 Official Group for playing and suggestions: @sunshine_gc</blockquote>`;
 
 export const allowedChatSearchKeys = ["global", "group"] as const;

@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 export function escapeHtmlEntities(text: string) {
   const entityMap: Record<string, string> = {
     "<": "&lt;",

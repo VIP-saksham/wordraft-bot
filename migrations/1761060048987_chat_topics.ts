@@ -1,3 +1,4 @@
+// © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { type Kysely, sql } from "kysely";
 
 export async function up(db: Kysely<any>): Promise<void> {
