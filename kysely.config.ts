@@ -10,7 +10,7 @@ import { env } from "./src/config/env";
 
 const dialect = new PostgresDialect({
   pool: new Pool({
-    connectionString: env.DATABASE_URL,
+    connectionString: env.DATABASE_URL ?? "",
     max: 10,
   }),
 });

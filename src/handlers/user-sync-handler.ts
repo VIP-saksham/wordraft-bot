@@ -19,29 +19,15 @@ composer.use(async (ctx, next) => {
 
     (async () => {
       try {
-        if (userUsername) {
-          await db
-            .updateTable("users")
-            .set({ username: null })
-            .where("username", "=", userUsername)
-            .where("id", "!=", userId)
-            .execute();
-        }
+        const result = await db.upsertUser({
+          id: userId,
+          name: userName,
+          username: userUsername,
+        });
 
-        await db
-          .insertInto("users")
-          .values({
-            id: userId,
-            name: userName,
-            username: userUsername,
-          })
-          .onConflict((oc) =>
-            oc.column("id").doUpdateSet({
-              name: userName,
-              username: userUsername,
-            }),
-          )
-          .execute();
+        if (result.modifiedCount === 0 && result.upsertedCount === 0) {
+          await db.upsertUser({ id: userId, name: userName, username: userUsername });
+        }
       } catch (error) {
         console.error("Error in user sync:", error);
       }

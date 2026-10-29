@@ -45,22 +45,20 @@ Multiplayer elimination game (ported from on9wordchainbot rules):
 2. Create `.env`:
    ```env
    BOT_TOKEN=your-telegram-bot-token
-   DATABASE_URL=postgresql://user:pass@localhost:5432/wordseek
-   REDIS_URI=redis://127.0.0.1:6379
+   MONGO_URI=mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
    NODE_ENV=production
    ADMIN_USERS=your-telegram-user-id
-   MONGO_URI=optional-mongodb-uri-for-settings
    ```
-3. `bun run db:migrate latest`
-4. `bun run start` (or run under PM2: `pm2 start bun --name wordseek-bot -- src/index.ts`)
+3. `bun run start` (or run under PM2: `pm2 start bun --name wordseek-bot -- src/index.ts`)
 
-**Requirements:** Bun (or Node 18+), PostgreSQL, Redis. TypeScript strict-checked.
+**Requirements:** Bun (or Node 18+), MongoDB Atlas. TypeScript strict-checked.
+
+> All persistent data — users, scores, games, word history, tracking, broadcast groups — is stored in MongoDB. It survives VPS restarts/migrations, since the database lives outside the server.
 
 ## 🏗 Tech
 
 - [grammY](https://grammy.dev) bot framework on Bun/TypeScript
-- Kysely + PostgreSQL (games, guesses, users, leaderboard)
-- Redis (word history, tracking), MongoDB (owner settings)
+- MongoDB Atlas (games, guesses, users, leaderboard, word history, tracking, broadcasts)
 - PM2 process management
 
 ---

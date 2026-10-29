@@ -1,7 +1,7 @@
 // © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
-import { sql } from "kysely";
-
 import { db } from "../config/db";
+
+import { timeWindowFor } from "./get-user-scores";
 
 export async function getLeaderboardScores({
   chatId,
@@ -12,55 +12,49 @@ export async function getLeaderboardScores({
   searchKey: "group" | "global";
   timeKey: "today" | "week" | "month" | "year" | "all";
 }) {
-  let leaderboardQuery = db
-    .selectFrom("leaderboard")
-    .innerJoin("users", "users.id", "leaderboard.userId")
-    .select((eb) => [
-      "users.id as userId",
-      "users.name as name",
-      "users.username as username",
-      sql<number>`cast(sum(${eb.ref("leaderboard.score")}) as integer)`.as(
-        "totalScore",
-      ),
-    ])
-    .groupBy("users.id")
-    .orderBy(sql`sum(${sql.ref("leaderboard.score")}) desc`)
-    .limit(20);
+  let query = db.selectFrom("leaderboard").selectAll();
 
-  if (searchKey === "group")
-    leaderboardQuery = leaderboardQuery.where(
-      "leaderboard.chatId",
-      "=",
-      chatId,
-    );
-  if (timeKey !== "all") {
-    leaderboardQuery = leaderboardQuery.where((eb) => {
-      if (timeKey === "today")
-        return eb(
-          sql`date_trunc('day', ${eb.ref("leaderboard.createdAt")})`,
-          "=",
-          sql<Date>`date_trunc('day', now())`,
-        );
-      else if (timeKey === "week")
-        return eb(
-          sql`date_trunc('week', ${eb.ref("leaderboard.createdAt")})`,
-          "=",
-          sql<Date>`date_trunc('week', now())`,
-        );
-      else if (timeKey === "month")
-        return eb(
-          sql`date_trunc('month', ${eb.ref("leaderboard.createdAt")})`,
-          "=",
-          sql<Date>`date_trunc('month', now())`,
-        );
-      else
-        return eb(
-          sql`date_trunc('year', ${eb.ref("leaderboard.createdAt")})`,
-          "=",
-          sql<Date>`date_trunc('year', now())`,
-        );
-    });
+  if (searchKey === "group") query = query.where("chatId", "=", chatId);
+
+  const windowStart = timeWindowFor(timeKey);
+  if (windowStart) query = query.where("createdAt", ">", windowStart);
+
+  const rows = (await query.execute()) as unknown as {
+    userId: string;
+    score: number;
+  }[];
+
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    totals.set(row.userId, (totals.get(row.userId) ?? 0) + Number(row.score));
   }
 
-  return await leaderboardQuery.execute();
+  const top = [...totals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20);
+
+  if (top.length === 0) return [];
+
+  const userDocs = (await db
+    .selectFrom("users")
+    .selectAll()
+    .where(
+      "id",
+      "in",
+      top.map(([id]) => id),
+    )
+    .execute()) as unknown as {
+    id: string;
+    name: string;
+    username: string | null;
+  }[];
+
+  const userMap = new Map(userDocs.map((user) => [user.id, user]));
+
+  return top.map(([userId, totalScore]) => ({
+    userId,
+    name: userMap.get(userId)?.name || userId,
+    username: userMap.get(userId)?.username || null,
+    totalScore,
+  }));
 }

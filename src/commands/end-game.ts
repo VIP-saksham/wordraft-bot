@@ -3,7 +3,6 @@ import { Composer, Context } from "grammy";
 
 import { db } from "../config/db";
 import { env } from "../config/env";
-import { redis } from "../config/redis";
 import { CommandsHelper } from "../util/commands-helper";
 import { formatWordDetails } from "../util/format-word-details";
 
@@ -104,8 +103,7 @@ composer.command("end", async (ctx) => {
     return await endGame(ctx, chatId, currentGame.word, reason);
   }
 
-  const voteKey = `vote:${chatId}`;
-  const existingVotes = await redis.get(voteKey);
+  const existingVotes = await db.getVote(String(chatId));
 
   if (existingVotes) {
     return await ctx.reply(
@@ -113,12 +111,7 @@ composer.command("end", async (ctx) => {
     );
   }
 
-  const voteData = {
-    voters: [userId],
-    initiatedAt: Date.now(),
-  };
-
-  await redis.setex(voteKey, 300, JSON.stringify(voteData)); // 5 minutes expiry
+  await db.createVote(String(chatId), userId); // 5-minute TTL Mongo me lagti hai
 
   const userName =
     ctx.from.first_name + (ctx.from.last_name ? " " + ctx.from.last_name : "");

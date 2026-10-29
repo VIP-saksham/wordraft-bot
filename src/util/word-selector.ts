@@ -1,7 +1,7 @@
 // © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { randomInt } from "crypto";
 
-import { redis } from "../config/redis";
+import { getMongoCollection } from "../config/db";
 import commonWords from "../data/commonWords.json";
 
 export interface WordData {
@@ -20,6 +20,21 @@ export interface WordSelectorConfig {
   ttlSeconds: number;
 }
 
+const fetchUsedWords = async (historyKey: string): Promise<string[]> => {
+  const doc = await getMongoCollection("wordHistory").findOne(
+    { _id: historyKey } as never,
+  );
+  return (doc?.words as string[]) ?? [];
+};
+
+const saveUsedWords = async (historyKey: string, words: string[]) => {
+  await getMongoCollection("wordHistory").updateOne(
+    { _id: historyKey } as never,
+    { $set: { words, updatedAt: new Date() } },
+    { upsert: true },
+  );
+};
+
 export class WordSelector {
   private config: WordSelectorConfig;
 
@@ -27,7 +42,7 @@ export class WordSelector {
     this.config = {
       historySize: config.historySize ?? 50,
       resetThreshold: config.resetThreshold ?? 10,
-      ttlSeconds: config.ttlSeconds ?? 7 * 24 * 60 * 60, // 7 days
+      ttlSeconds: config.ttlSeconds ?? 7 * 24 * 60 * 60, // 7 din
     };
   }
 
@@ -36,17 +51,7 @@ export class WordSelector {
     const historyKey = `h:${chatId}`;
 
     try {
-      const pipeline = redis.pipeline();
-      pipeline.smembers(historyKey);
-      pipeline.scard(historyKey);
-      const results = await pipeline.exec();
-
-      if (!results || results.length !== 2) {
-        throw new Error("Pipeline failed");
-      }
-
-      const usedWords = results[0][1] as string[];
-      const setSize = results[1][1] as number;
+      const usedWords = await fetchUsedWords(historyKey);
 
       const availableWords = allWords.filter(
         (word) => !usedWords.includes(word.toLowerCase()),
@@ -56,30 +61,26 @@ export class WordSelector {
         const recentWords = usedWords.slice(
           -Math.floor(this.config.resetThreshold / 2),
         );
-        await redis.del(historyKey);
-        if (recentWords.length > 0) {
-          await redis.sadd(historyKey, ...recentWords);
-        }
+        await saveUsedWords(historyKey, recentWords);
         return this.getRandomWord(chatId);
       }
 
       const randomWord =
         availableWords[randomInt(0, availableWords.length)].toLowerCase();
 
-      const updatePipeline = redis.pipeline();
-      updatePipeline.sadd(historyKey, randomWord);
-      updatePipeline.expire(historyKey, this.config.ttlSeconds);
+      const trimmed =
+        usedWords.length >= this.config.historySize
+          ? [
+              ...usedWords.slice(Math.floor(this.config.historySize * 0.2)),
+              randomWord,
+            ]
+          : [...usedWords, randomWord];
 
-      if (setSize >= this.config.historySize) {
-        const trimCount = Math.floor(this.config.historySize * 0.2);
-        updatePipeline.spop(historyKey, trimCount);
-      }
-
-      await updatePipeline.exec();
+      await saveUsedWords(historyKey, trimmed);
 
       return randomWord;
     } catch (error) {
-      console.error("Redis error, using fallback:", error);
+      console.error("Word history error, using fallback:", error);
       return allWords[randomInt(0, allWords.length)].toLowerCase();
     }
   }
@@ -92,16 +93,16 @@ export class WordSelector {
   }
 
   async resetChat(chatId: string | number) {
-    await redis.del(`h:${chatId}`);
+    await getMongoCollection("wordHistory").deleteOne({ _id: `h:${chatId}` } as never);
   }
 
   async getChatStats(chatId: string | number) {
     const totalCount = Object.keys(commonWords).length;
     try {
-      const usedCount = await redis.scard(`h:${chatId}`);
+      const usedCount = await fetchUsedWords(`h:${chatId}`);
       return {
-        usedCount,
-        availableCount: totalCount - usedCount,
+        usedCount: usedCount.length,
+        availableCount: totalCount - usedCount.length,
         totalCount,
       };
     } catch (error) {
@@ -110,12 +111,7 @@ export class WordSelector {
   }
 
   async getRecentWords(chatId: string | number) {
-    try {
-      return await redis.smembers(`h:${chatId}`);
-    } catch (error) {
-      console.error("Error getting recent words:", error);
-      return [];
-    }
+    return fetchUsedWords(`h:${chatId}`);
   }
 
   getConfig() {

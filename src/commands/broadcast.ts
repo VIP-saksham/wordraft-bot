@@ -2,8 +2,7 @@
 import { Composer } from "grammy";
 
 import { env } from "../config/env";
-import { redis } from "../config/redis";
-import { REGISTERED_GROUPS_KEY } from "../util/auto-pattern";
+import { db } from "../config/db";
 
 const composer = new Composer();
 
@@ -19,16 +18,14 @@ composer.command("broadcast", async (ctx) => {
 
   if (!replyTarget && !args) {
     return ctx.reply(
-      "📡 Usage: /broadcast <message>\nYa kisi message ko reply karke /broadcast bhejo.",
+      "📡 Usage: /broadcast <message>\nOr reply to a message and send /broadcast to broadcast it.",
     );
   }
 
-  const targets = await redis
-    .smembers(REGISTERED_GROUPS_KEY)
-    .catch(() => []);
+  const targets = await db.getRegisteredGroups().catch(() => []);
 
   if (targets.length === 0) {
-    return ctx.reply("Abhi koi group registered nahi hai.");
+    return ctx.reply("No group is registered yet.");
   }
 
   await ctx.reply(`📡 Broadcasting to ${targets.length} groups...`);

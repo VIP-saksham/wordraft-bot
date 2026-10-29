@@ -35,20 +35,10 @@ composer.command("stats", async (ctx) => {
   const cpus = os.cpus();
   const loadAvg = os.loadavg();
 
-  const [usersResult, groupsResult] = await Promise.all([
-    db
-      .selectFrom("users")
-      .select((eb) => eb.fn.count("id").as("usersCount"))
-      .executeTakeFirstOrThrow(),
-    db
-      .selectFrom("leaderboard")
-      .select((eb) => eb.fn.count("chatId").distinct().as("groupsCount"))
-      .where("chatId", "like", "-1%")
-      .executeTakeFirstOrThrow(),
+  const [usersCount, groupsCount] = await Promise.all([
+    db.countUsers(),
+    db.countGroupChats(),
   ]);
-
-  const usersCount = usersResult.usersCount;
-  const groupsCount = groupsResult.groupsCount;
 
   const formatBytes = (bytes: number) => {
     if (!bytes) return "0 B";

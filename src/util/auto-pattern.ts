@@ -3,7 +3,6 @@ import { Composer } from "grammy";
 
 import { bot } from "../config/bot";
 import { db } from "../config/db";
-import { redis } from "../config/redis";
 import {
   GAME_TTL_MS,
   PATTERN_GAME_TYPE,
@@ -24,21 +23,11 @@ const isGroupChat = (
   !!chat && (chat.type === "group" || chat.type === "supergroup");
 
 const registerGroup = async (chatId: number) => {
-  try {
-    await redis.sadd(REGISTERED_GROUPS_KEY, chatId.toString());
-  } catch (error) {
-    console.error("Group registry error:", error);
-  }
+  await db.addRegisteredGroup(chatId.toString());
 };
 
-const getRegisteredGroups = async (): Promise<string[]> => {
-  try {
-    return await redis.smembers(REGISTERED_GROUPS_KEY);
-  } catch (error) {
-    console.error("Group registry read error:", error);
-    return [];
-  }
-};
+const getRegisteredGroups = async (): Promise<string[]> =>
+  db.getRegisteredGroups();
 
 /** Starts a pattern game in a chat, skipping/dealing with stale games. */
 const startPatternGameInChat = async (chatId: string) => {

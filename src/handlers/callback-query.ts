@@ -1,8 +1,6 @@
 // © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { Composer, InlineKeyboard } from "grammy";
 
-import { sql } from "kysely";
-
 import { endGame, isUserAuthorized } from "../commands/end-game";
 import {
   allowedChatSearchKeys,
@@ -10,7 +8,6 @@ import {
 } from "../config/constants";
 import { db } from "../config/db";
 import { env } from "../config/env";
-import { redis } from "../config/redis";
 import { getLeaderboardScores } from "../services/get-leaderboard-scores";
 import { getUserScores } from "../services/get-user-scores";
 import { AllowedChatSearchKey, AllowedChatTimeKey } from "../types";
@@ -64,11 +61,10 @@ composer.on("callback_query:data", async (ctx) => {
     const [, username] = parts;
     if (!username) break condition;
 
-    const users = await db
-      .selectFrom("users")
-      .select(["id", "name", "username"])
-      .where(sql`lower(username)`, "=", username)
-      .execute();
+    const foundUser = await db.findUserByUsername(username);
+    const users = (
+      foundUser ? [foundUser] : []
+    ) as unknown as { id: string; name: string; username: string }[];
 
     if (users.length === 0) {
       return ctx.answerCallbackQuery({
@@ -315,17 +311,14 @@ composer.on("callback_query:data", async (ctx) => {
     }
 
     const userId = ctx.from.id.toString();
-    const voteKey = `vote:${chatId}`;
-    const voteDataStr = await redis.get(voteKey);
+    const voteData = await db.getVote(chatId.toString());
 
-    if (!voteDataStr) {
+    if (!voteData) {
       return await ctx.answerCallbackQuery({
         text: "The voting session has expired.",
         show_alert: true,
       });
     }
-
-    const voteData = JSON.parse(voteDataStr);
 
     if (voteData.voters.includes(userId)) {
       return await ctx.answerCallbackQuery({
@@ -375,7 +368,7 @@ composer.on("callback_query:data", async (ctx) => {
     voteData.voters.push(userId);
 
     if (voteData.voters.length >= 3) {
-      await redis.del(voteKey);
+      await db.deleteVote(chatId.toString());
 
       const reason = "<b>Game ended - 3 players voted to end the game</b>";
       await ctx.deleteMessage();
@@ -386,7 +379,8 @@ composer.on("callback_query:data", async (ctx) => {
       });
     }
 
-    await redis.setex(voteKey, 300, JSON.stringify(voteData));
+    const updatedVote = await db.addVoter(chatId.toString(), userId);
+    voteData.voters = updatedVote?.voters ?? voteData.voters;
 
     const votesNeeded = 3 - voteData.voters.length;
 

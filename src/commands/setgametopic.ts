@@ -1,12 +1,8 @@
 // © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { Composer } from "grammy";
 
-import pg from "pg";
-
 import { db } from "../config/db";
 import { CommandsHelper } from "../util/commands-helper";
-
-const { DatabaseError } = pg;
 
 const composer = new Composer();
 
@@ -51,11 +47,12 @@ composer.command("setgametopic", async (ctx) => {
       `@${ctx.me.username} will now use this topic for the game.`,
     );
   } catch (err) {
-    if (err instanceof DatabaseError && err.code === "23505") {
+    if ((err as { code?: string })?.code === "23505") {
       return await ctx.reply(
         "Game has already been set for this topic.\nUse /unsetgametopic to unset it first.",
       );
     }
+    console.error("setgametopic failed:", err);
   }
 });
 

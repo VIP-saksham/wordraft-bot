@@ -1,8 +1,27 @@
 // © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
-import { sql } from "kysely";
-
 import { db } from "../config/db";
 import type { AllowedChatSearchKey, AllowedChatTimeKey } from "../types";
+
+/** date_trunc jaisi time windows — project mein UTC server-based boundaries. */
+export const timeWindowFor = (timeKey: AllowedChatTimeKey): Date | null => {
+  if (timeKey === "all") return null;
+
+  const now = new Date();
+
+  if (timeKey === "today") {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+  if (timeKey === "week") {
+    const start = new Date(now);
+    start.setDate(now.getDate() - now.getDay());
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }
+  if (timeKey === "month") {
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+  return new Date(now.getFullYear(), 0, 1);
+};
 
 export async function getUserScores({
   chatId,
@@ -15,63 +34,46 @@ export async function getUserScores({
   userId: string;
   timeKey: AllowedChatTimeKey;
 }) {
-  const userQuery = db
-    .selectFrom((eb) => {
-      let innerQuery = eb
-        .selectFrom("leaderboard")
-        .select("leaderboard.userId")
-        .select(sql<number>`sum(leaderboard.score)`.as("totalScore"))
-        .groupBy("leaderboard.userId")
-        .select(
-          sql<number>`rank() over (order by sum(leaderboard.score) desc)`.as(
-            "rank",
-          ),
-        );
+  let query = db.selectFrom("leaderboard").selectAll();
 
-      if (searchKey === "group") {
-        innerQuery = innerQuery.where("leaderboard.chatId", "=", chatId);
-      }
+  if (searchKey === "group") query = query.where("chatId", "=", chatId);
 
-      if (timeKey !== "all") {
-        innerQuery = innerQuery.where((eb) => {
-          if (timeKey === "today")
-            return eb(
-              sql`date_trunc('day', ${eb.ref("leaderboard.createdAt")})`,
-              "=",
-              sql<Date>`date_trunc('day', now())`,
-            );
-          else if (timeKey === "week")
-            return eb(
-              sql`date_trunc('week', ${eb.ref("leaderboard.createdAt")})`,
-              "=",
-              sql<Date>`date_trunc('week', now())`,
-            );
-          else if (timeKey === "month")
-            return eb(
-              sql`date_trunc('month', ${eb.ref("leaderboard.createdAt")})`,
-              "=",
-              sql<Date>`date_trunc('month', now())`,
-            );
-          else
-            return eb(
-              sql`date_trunc('year', ${eb.ref("leaderboard.createdAt")})`,
-              "=",
-              sql<Date>`date_trunc('year', now())`,
-            );
-        });
-      }
+  const windowStart = timeWindowFor(timeKey);
+  if (windowStart) query = query.where("createdAt", ">", windowStart);
 
-      return innerQuery.as("lb");
-    })
-    .innerJoin("users", "users.id", "lb.userId")
-    .select([
-      "users.id",
-      "users.name",
-      "users.username",
-      "lb.totalScore",
-      "lb.rank",
-    ])
-    .where("users.id", "=", userId);
+  const rows = (await query.execute()) as unknown as {
+    userId: string;
+    score: number;
+  }[];
 
-  return await userQuery.executeTakeFirst();
+  // Mongo me aggregation ki jaga values ko code me hi sum + rank karte hain.
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    totals.set(row.userId, (totals.get(row.userId) ?? 0) + Number(row.score));
+  }
+
+  if (!totals.has(userId)) return undefined;
+
+  const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+  let rank = 1;
+  let previousScore = Number.POSITIVE_INFINITY;
+  for (const [index, [candidate, total]] of ranked.entries()) {
+    if (total < previousScore) rank = index + 1;
+    if (candidate === userId) break;
+    previousScore = total;
+  }
+
+  const user = await db
+    .selectFrom("users")
+    .selectAll()
+    .where("id", "=", userId)
+    .executeTakeFirst();
+
+  return {
+    id: userId,
+    name: user?.name || userId,
+    username: user?.username || null,
+    totalScore: totals.get(userId) ?? 0,
+    rank,
+  };
 }

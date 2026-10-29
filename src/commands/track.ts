@@ -1,6 +1,8 @@
 // © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
+// Track/untrack ab MongoDB me store hota hai — Redis ka chakkar nahi.
 import { Composer } from "grammy";
-import { redis } from "../config/redis";
+
+import { db } from "../config/db";
 import { env } from "../config/env";
 
 const composer = new Composer();
@@ -14,16 +16,17 @@ composer.command("track", async (ctx) => {
     return ctx.reply("Usage: /track <chat_id>");
   }
 
-  const trackingKey = `tracking:${chatId}`;
-  const existingTracking = await redis.get(trackingKey);
+  const existingTracking = await db.getTracking(chatId);
 
   if (existingTracking) {
     return ctx.reply(`⚠️ Chat ${chatId} is already being tracked`);
   }
 
-  await redis.set(trackingKey, ctx.chat.id.toString());
+  await db.setTracking(chatId, ctx.chat.id.toString());
 
-  await ctx.reply(`✅ Now tracking chat: ${chatId}\nAll messages will be forwarded here.`);
+  await ctx.reply(
+    `✅ Now tracking chat: ${chatId}\nAll messages will be forwarded here.`,
+  );
 });
 
 composer.command("untrack", async (ctx) => {
@@ -35,10 +38,9 @@ composer.command("untrack", async (ctx) => {
     return ctx.reply("Usage: /untrack <chat_id>");
   }
 
-  const trackingKey = `tracking:${chatId}`;
-  const deleted = await redis.del(trackingKey);
+  const deleted = await db.deleteTracking(chatId);
 
-  if (deleted === 0) {
+  if (!deleted) {
     return ctx.reply(`⚠️ Chat ${chatId} is not being tracked`);
   }
 
@@ -49,13 +51,15 @@ composer.command("tracklist", async (ctx) => {
   if (!ctx.from || ctx.chat.type !== "private") return;
   if (!env.ADMIN_USERS.includes(ctx.from.id)) return;
 
-  const keys = await redis.keys("tracking:*");
+  const tracked = await db.listTracking();
 
-  if (keys.length === 0) {
+  if (tracked.length === 0) {
     return ctx.reply("No chats are currently being tracked");
   }
 
-  const trackedChats = keys.map(key => key.replace("tracking:", "")).join("\n");
+  const trackedChats = tracked
+    .map((entry) => `${entry.chatId} → ${entry.adminChatId}`)
+    .join("\n");
   await ctx.reply(`📋 Currently tracking:\n${trackedChats}`);
 });
 

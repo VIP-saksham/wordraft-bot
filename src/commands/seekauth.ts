@@ -1,8 +1,6 @@
 // © 2026 VIP-saksham · Wordraft Game Bot · All Rights Reserved.
 import { Composer, Context } from "grammy";
 
-import { sql } from "kysely";
-
 import { db } from "../config/db";
 import { env } from "../config/env";
 import { CommandsHelper } from "../util/commands-helper";
@@ -68,27 +66,14 @@ export async function getTargetUser(
         username: user.username,
       };
 
-      await db
-        .insertInto("users")
-        .values(userData)
-        .onConflict((oc) =>
-          oc.column("id").doUpdateSet({
-            name: userData.name,
-            username: userData.username,
-          }),
-        )
-        .execute();
+      await db.upsertUser(userData);
       return userData;
     }
 
     if (identifier && entity.type === "mention") {
       const username = identifier.slice(1);
 
-      const user = await db
-        .selectFrom("users")
-        .select(["id", "name", "username"])
-        .where(sql`lower(username)`, "=", username.toLowerCase())
-        .executeTakeFirst();
+      const user = await db.findUserByUsername(username.toLowerCase());
 
       return user || null;
     }
@@ -150,12 +135,24 @@ composer.command("seekauth", async (ctx) => {
   const action = parts[0]!.toLowerCase();
 
   if (action === "list") {
-    const authorizedUsers = await db
+    const authorizedDocs = await db
       .selectFrom("authorizedUsers")
-      .innerJoin("users", "users.id", "authorizedUsers.userId")
-      .where("authorizedUsers.chatId", "=", chatId)
-      .select(["users.id", "users.name", "users.username"])
+      .selectAll()
+      .where("chatId", "=", chatId)
       .execute();
+
+    const authorizedUsers = (
+      await Promise.all(
+        authorizedDocs.map(async (doc) => {
+          const user = await db
+            .selectFrom("users")
+            .selectAll()
+            .where("id", "=", doc.userId)
+            .executeTakeFirst();
+          return user ? { id: user.id, name: user.name, username: user.username } : null;
+        }),
+      )
+    ).filter((user): user is { id: string; name: string; username: string | null } => user !== null);
 
     if (authorizedUsers.length === 0) {
       return await ctx.reply(
